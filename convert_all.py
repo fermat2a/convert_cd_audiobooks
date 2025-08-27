@@ -25,11 +25,11 @@ def relpath(path, root_path):
     return os.path.relpath(path, root_path)
 
 
+author_valid_re = re.compile(r'^(?! )[A-Za-zÄÖÜäöüß_\-.]+( [A-Za-zÄÖÜäöüß_\-.]+)+(?! )$')
+book_valid_re = re.compile(r'^[A-Za-zÄÖÜäöüß0-9 _\-.]+$')
+
 def check_structure(root_path, try_fix=False):
     errors = []
-    author_valid_re = re.compile(r'^(?! )[A-Za-zÄÖÜäöüß_\-.]+( [A-Za-zÄÖÜäöüß_\-.]+)+(?! )$')
-    book_valid_re = re.compile(r'^[A-Za-zÄÖÜäöüß0-9 _\-.]+$')
-
     for letter in os.listdir(root_path):
         letter_path = os.path.join(root_path, letter)
         if not os.path.isdir(letter_path):
@@ -41,11 +41,11 @@ def check_structure(root_path, try_fix=False):
 
         for author in os.listdir(letter_path):
             author_path = os.path.join(letter_path, author)
-            check_author_dir(author, author_path, letter, root_path, errors, author_valid_re, book_valid_re, try_fix)
+            check_author_dir(author, author_path, letter, root_path, errors, try_fix)
 
     return errors
 
-def check_author_dir(author, author_path, letter, root_path, errors, author_valid_re, book_valid_re, try_fix):
+def check_author_dir(author, author_path, letter, root_path, errors, try_fix):
     found_files_in_author = False
     if not os.path.isdir(author_path):
         errors.append(f"{relpath(author_path, root_path)} ist kein Verzeichnis (Ebene 2)")
@@ -64,9 +64,9 @@ def check_author_dir(author, author_path, letter, root_path, errors, author_vali
                 found_files_in_author = True
                 errors.append(f"{relpath(author_path, root_path)} enthält Dateien (Ebene 3)")
             continue
-        check_book_dir(book, book_path, author, root_path, errors, book_valid_re, try_fix)
+        check_book_dir(book, book_path, author, root_path, errors, try_fix)
 
-def check_book_dir(book, book_path, author, root_path, errors, book_valid_re, try_fix):
+def check_book_dir(book, book_path, author, root_path, errors, try_fix):
     if not book_valid_re.match(book):
         errors.append(f"{relpath(book_path, root_path)} Hörbuchverzeichnisname enthält ungültige Zeichen (Ebene 3)")
         return
@@ -74,10 +74,8 @@ def check_book_dir(book, book_path, author, root_path, errors, book_valid_re, tr
         errors.append(f"{relpath(book_path, root_path)} Name des Authors und des Hörbuchs dürfen sich nicht gegenseitig enthalten (Ebene 3)")
         return
 
-    # tryFix für verschachtelte Einzelverzeichnisse
     flatten_single_subdirs(book_path, try_fix)
 
-    # Prüfung auf mp3 und CD-Verzeichnisse
     entries = os.listdir(book_path)
     mp3s = [f for f in entries if f.lower().endswith('.mp3')]
     cds = [f for f in entries if os.path.isdir(os.path.join(book_path, f))]

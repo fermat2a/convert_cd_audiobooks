@@ -3,7 +3,6 @@ import os
 import shutil
 import tempfile
 import unittest
-import re
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from convert_all import (
@@ -94,9 +93,7 @@ class TestCheckStructure(unittest.TestCase):
             author_path = os.path.join(test_dir, letter, author)
             os.makedirs(author_path)
             errors = []
-            author_valid_re = re.compile(r'^(?! )[A-Za-zÄÖÜäöüß_\-.]+( [A-Za-zÄÖÜäöüß_\-.]+)+(?! )$')
-            book_valid_re = re.compile(r'^[A-Za-zÄÖÜäöüß0-9 _\-.]+$')
-            check_author_dir(author, author_path, letter, test_dir, errors, author_valid_re, book_valid_re, try_fix=False)
+            check_author_dir(author, author_path, letter, test_dir, errors, try_fix=False)
             self.assertTrue(
                 any("Authorenverzeichnisname enthält ungültige Zeichen" in e or "kein Leerzeichen in der Mitte" in e for e in errors),
                 msg=f"Kein Fehler für ungültigen Authorenverzeichnisnamen '{author}'. Fehlerliste: {errors}"
@@ -113,8 +110,7 @@ class TestCheckStructure(unittest.TestCase):
             book_path = os.path.join(test_dir, author[0], author, book)
             os.makedirs(book_path)
             errors = []
-            book_valid_re = re.compile(r'^[A-Za-zÄÖÜäöüß0-9 _\-.]+$')
-            check_book_dir(book, book_path, author, test_dir, errors, book_valid_re, try_fix=False)
+            check_book_dir(book, book_path, author, test_dir, errors, try_fix=False)
             self.assertTrue(any("Hörbuchverzeichnisname enthält ungültige Zeichen" in e for e in errors))
         finally:
             shutil.rmtree(test_dir)
