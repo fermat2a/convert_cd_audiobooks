@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import re
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from convert_all import (
@@ -12,6 +13,8 @@ from convert_all import (
     flatten_single_subdirs,
     check_cd_dirs,
     check_cd_mp3s,
+    author_valid_re,
+    book_valid_re,
 )
 
 class TestCheckStructure(unittest.TestCase):
@@ -101,6 +104,42 @@ class TestCheckStructure(unittest.TestCase):
         finally:
             shutil.rmtree(test_dir)
 
+    def test_check_author_dir_tryfix(self):
+        # Testet, dass bei --tryFix der Authorname automatisch repariert wird
+        test_dir = tempfile.mkdtemp()
+        try:
+            letter = "A"
+            author = "Max_Mustermann"
+            author_path = os.path.join(test_dir, letter, author)
+            os.makedirs(author_path)
+            errors = check_structure(test_dir, try_fix=True)
+            fixed_path = os.path.join(test_dir, letter, "Max Mustermann")
+            self.assertTrue(
+                os.path.isdir(fixed_path),
+                msg=f"Authorenverzeichnis '{author}' wurde nicht korrekt repariert zu 'Max Mustermann'."
+            )
+        finally:
+            shutil.rmtree(test_dir)
+
+    def test_check_book_dir_tryfix(self):
+        # Testet, dass bei --tryFix der Buchname automatisch repariert wird
+        test_dir = tempfile.mkdtemp()
+        try:
+            author = "Max Mustermann"
+            book = "Mein_Buch_17"
+            author_dir = os.path.join(test_dir, author[0], author)
+            os.makedirs(author_dir)
+            book_path = os.path.join(author_dir, book)
+            os.makedirs(book_path)
+            errors = check_structure(test_dir, try_fix=True)
+            fixed_path = os.path.join(author_dir, "Mein Buch 17")
+            self.assertTrue(
+                os.path.isdir(fixed_path),
+                msg=f"Buchverzeichnis '{book}' wurde nicht korrekt repariert zu 'Mein Buch 17'."
+            )
+        finally:
+            shutil.rmtree(test_dir)
+
     def test_check_book_dir_invalid(self):
         # Testet, dass ein ungültiger Buchname erkannt wird
         test_dir = tempfile.mkdtemp()
@@ -110,7 +149,7 @@ class TestCheckStructure(unittest.TestCase):
             book_path = os.path.join(test_dir, author[0], author, book)
             os.makedirs(book_path)
             errors = []
-            check_book_dir(book, book_path, author, test_dir, errors, try_fix=False)
+            check_book_dir(book, book_path, author, os.path.join(test_dir, author[0], author), test_dir, errors, try_fix=False)
             self.assertTrue(any("Hörbuchverzeichnisname enthält ungültige Zeichen" in e for e in errors))
         finally:
             shutil.rmtree(test_dir)
@@ -134,6 +173,41 @@ class TestCheckStructure(unittest.TestCase):
             self.assertFalse(os.path.exists(subdir))
         finally:
             shutil.rmtree(test_dir)
+
+    def test_author_and_book_name_containment_error(self):
+        # Testet, dass ein Fehler ausgegeben wird, wenn der Authorname im Buchnamen vorkommt oder umgekehrt
+        cases = [
+            ("Max Mustermann", "Max Mustermann", True),
+            ("Sabine Maier", "Das neue Hörbuch von Sabine Maier", True),
+            ("SabineManuela Maier", "Sabine", True),
+            ("Tina Turner", "Das Buch", False),  # Kein Konflikt
+        ]
+        for author, book, expect_error in cases:
+            with self.subTest(author=author, book=book):
+                test_dir = tempfile.mkdtemp()
+                try:
+                    author_dir = os.path.join(test_dir, author[0], author)
+                    os.makedirs(author_dir)
+                    book_dir = os.path.join(author_dir, book)
+                    os.makedirs(book_dir)
+                    self.make_file(os.path.join(book_dir, "track1.mp3"))
+                    errors = check_structure(test_dir)
+                    relevant_error = any(
+                        "Name des Authors und des Hörbuchs dürfen sich nicht gegenseitig enthalten" in e
+                        for e in errors
+                    )
+                    if expect_error:
+                        self.assertTrue(
+                            relevant_error,
+                            msg=f"Fehler erwartet für Author='{author}', Buch='{book}', aber nicht gefunden. Fehlerliste: {errors}"
+                        )
+                    else:
+                        self.assertFalse(
+                            relevant_error,
+                            msg=f"Kein Fehler erwartet für Author='{author}', Buch='{book}', aber gefunden. Fehlerliste: {errors}"
+                        )
+                finally:
+                    shutil.rmtree(test_dir)
 
 if __name__ == "__main__":
     unittest.main()

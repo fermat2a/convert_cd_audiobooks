@@ -25,8 +25,8 @@ def relpath(path, root_path):
     return os.path.relpath(path, root_path)
 
 
-author_valid_re = re.compile(r'^(?! )[A-Za-zÄÖÜäöüß_\-.]+( [A-Za-zÄÖÜäöüß_\-.]+)+(?! )$')
-book_valid_re = re.compile(r'^[A-Za-zÄÖÜäöüß0-9 _\-.]+$')
+author_valid_re = re.compile(r'^(?! )[A-Za-zÄÖÜäöüß\-.]+( [A-Za-zÄÖÜäöüß\-.]+)+(?! )$')
+book_valid_re = re.compile(r'^[A-Za-zÄÖÜäöüß0-9 \-.]+$')
 
 def check_structure(root_path, try_fix=False):
     errors = []
@@ -41,6 +41,23 @@ def check_structure(root_path, try_fix=False):
 
         for author in os.listdir(letter_path):
             author_path = os.path.join(letter_path, author)
+
+            # --tryFix: Authornamen reparieren
+            if try_fix:
+                new_author = author.replace("_", " ")
+                new_author = re.sub(r'\s+', ' ', new_author)
+                new_author = new_author.strip()
+                if new_author != author:
+                    new_author_path = os.path.join(letter_path, new_author)
+                    # Nur umbenennen, wenn das Ziel noch nicht existiert
+                    if not os.path.exists(new_author_path):
+                        os.rename(author_path, new_author_path)
+                        author = new_author
+                        author_path = new_author_path
+                    else:
+                        errors.append(f"{relpath(author_path, root_path)} kann nicht umbenannt werden in {new_author} (Ebene 2)")
+                        return
+
             check_author_dir(author, author_path, letter, root_path, errors, try_fix)
 
     return errors
@@ -50,6 +67,7 @@ def check_author_dir(author, author_path, letter, root_path, errors, try_fix):
     if not os.path.isdir(author_path):
         errors.append(f"{relpath(author_path, root_path)} ist kein Verzeichnis (Ebene 2)")
         return
+    
     if not author.lower().startswith(letter.lower()):
         errors.append(f"{relpath(author_path, root_path)} beginnt nicht mit '{letter}' (Ebene 2)")
         return
@@ -64,9 +82,23 @@ def check_author_dir(author, author_path, letter, root_path, errors, try_fix):
                 found_files_in_author = True
                 errors.append(f"{relpath(author_path, root_path)} enthält Dateien (Ebene 3)")
             continue
-        check_book_dir(book, book_path, author, root_path, errors, try_fix)
+        check_book_dir(book, book_path, author, author_path, root_path, errors, try_fix)
 
-def check_book_dir(book, book_path, author, root_path, errors, try_fix):
+def check_book_dir(book, book_path, author, author_path, root_path, errors, try_fix):
+    if try_fix:
+        new_book = book.replace("_", " ")
+        new_book = re.sub(r'\s+', ' ', new_book)
+        new_book = new_book.strip()
+        if new_book != book:
+            new_book_path = os.path.join(author_path, new_book)
+            if not os.path.exists(new_book_path):
+                os.rename(book_path, new_book_path)
+                book = new_book
+                book_path = new_book_path
+            else:
+                errors.append(f"{relpath(book_path, root_path)} kann nicht umbenannt werden in {new_book} (Ebene 3)")
+                return
+
     if not book_valid_re.match(book):
         errors.append(f"{relpath(book_path, root_path)} Hörbuchverzeichnisname enthält ungültige Zeichen (Ebene 3)")
         return
