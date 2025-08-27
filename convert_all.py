@@ -40,112 +40,129 @@ def check_structure(root_path, try_fix=False):
             continue
 
         for author in os.listdir(letter_path):
-            found_files_in_author = False
             author_path = os.path.join(letter_path, author)
-            if not os.path.isdir(author_path):
-                errors.append(f"{relpath(author_path, root_path)} ist kein Verzeichnis (Ebene 2)")
-                continue
-            if not author.lower().startswith(letter.lower()):
-                errors.append(f"{relpath(author_path, root_path)} beginnt nicht mit '{letter}' (Ebene 2)")
-                continue
-            if not author_valid_re.match(author):
-                errors.append(f"{relpath(author_path, root_path)} Authorenverzeichnisname enthält ungültige Zeichen oder kein Leerzeichen in der Mitte (Ebene 2)")
-                continue
+            check_author_dir(author, author_path, letter, root_path, errors, author_valid_re, book_valid_re, try_fix)
 
-            for book in os.listdir(author_path):
-                book_path = os.path.join(author_path, book)
-                if not os.path.isdir(book_path):
-                    if not found_files_in_author:
-                        found_files_in_author = True
-                        errors.append(f"{relpath(author_path, root_path)} enthält Dateien (Ebene 3)")
+    return errors
+
+def check_author_dir(author, author_path, letter, root_path, errors, author_valid_re, book_valid_re, try_fix):
+    found_files_in_author = False
+    if not os.path.isdir(author_path):
+        errors.append(f"{relpath(author_path, root_path)} ist kein Verzeichnis (Ebene 2)")
+        return
+    if not author.lower().startswith(letter.lower()):
+        errors.append(f"{relpath(author_path, root_path)} beginnt nicht mit '{letter}' (Ebene 2)")
+        return
+    if not author_valid_re.match(author):
+        errors.append(f"{relpath(author_path, root_path)} Authorenverzeichnisname enthält ungültige Zeichen oder kein Leerzeichen in der Mitte (Ebene 2)")
+        return
+
+    for book in os.listdir(author_path):
+        book_path = os.path.join(author_path, book)
+        if not os.path.isdir(book_path):
+            if not found_files_in_author:
+                found_files_in_author = True
+                errors.append(f"{relpath(author_path, root_path)} enthält Dateien (Ebene 3)")
+            continue
+        check_book_dir(book, book_path, author, root_path, errors, book_valid_re, try_fix)
+
+def check_book_dir(book, book_path, author, root_path, errors, book_valid_re, try_fix):
+    if not book_valid_re.match(book):
+        errors.append(f"{relpath(book_path, root_path)} Hörbuchverzeichnisname enthält ungültige Zeichen (Ebene 3)")
+        return
+    if author.lower() in book.lower() or book.lower() in author.lower():
+        errors.append(f"{relpath(book_path, root_path)} Name des Authors und des Hörbuchs dürfen sich nicht gegenseitig enthalten (Ebene 3)")
+        return
+
+    # tryFix für verschachtelte Einzelverzeichnisse
+    flatten_single_subdirs(book_path, try_fix)
+
+    # Prüfung auf mp3 und CD-Verzeichnisse
+    entries = os.listdir(book_path)
+    mp3s = [f for f in entries if f.lower().endswith('.mp3')]
+    cds = [f for f in entries if os.path.isdir(os.path.join(book_path, f))]
+
+    if mp3s and cds:
+        errors.append(f"{relpath(book_path, root_path)} enthält sowohl mp3-Dateien als auch CD-Verzeichnisse (Ebene 4)")
+    elif not mp3s and not cds:
+        errors.append(f"{relpath(book_path, root_path)} enthält weder mp3-Dateien noch CD-Verzeichnisse (Ebene 4)")
+
+    if cds:
+        check_cd_dirs(book_path, root_path, errors, cds, try_fix)
+
+def flatten_single_subdirs(book_path, try_fix):
+    if not try_fix:
+        return
+    changed = True
+    while changed:
+        entries = os.listdir(book_path)
+        subdirs = [d for d in entries if os.path.isdir(os.path.join(book_path, d))]
+        files = [f for f in entries if os.path.isfile(os.path.join(book_path, f))]
+        if len(subdirs) == 1 and not files:
+            only_subdir = os.path.join(book_path, subdirs[0])
+            for entry in os.listdir(only_subdir):
+                src = os.path.join(only_subdir, entry)
+                dst = os.path.join(book_path, entry)
+                if os.path.exists(dst):
                     continue
-                if not book_valid_re.match(book):
-                    errors.append(f"{relpath(book_path, root_path)} Hörbuchverzeichnisname enthält ungültige Zeichen (Ebene 3)")
-                    continue
-                if author.lower() in book.lower() or book.lower() in author.lower():
-                    errors.append(f"{relpath(book_path, root_path)} Name des Authors und des Hörbuchs dürfen sich nicht gegenseitig enthalten (Ebene 3)")
-                    continue
+                shutil.move(src, dst)
+            os.rmdir(only_subdir)
+            changed = True
+        else:
+            changed = False
 
-                # --- NEU: tryFix für verschachtelte Einzelverzeichnisse ---
-                changed = True
-                while try_fix and changed:
-                    entries = os.listdir(book_path)
-                    subdirs = [d for d in entries if os.path.isdir(os.path.join(book_path, d))]
-                    files = [f for f in entries if os.path.isfile(os.path.join(book_path, f))]
-                    if len(subdirs) == 1 and not files:
-                        only_subdir = os.path.join(book_path, subdirs[0])
-                        # Verschiebe alle Dateien und Verzeichnisse aus only_subdir nach book_path
-                        for entry in os.listdir(only_subdir):
-                            src = os.path.join(only_subdir, entry)
-                            dst = os.path.join(book_path, entry)
-                            if os.path.exists(dst):
-                                # Falls Ziel schon existiert, ignoriere oder überschreibe nicht
-                                continue
-                            shutil.move(src, dst)
-                        os.rmdir(only_subdir)
-                        changed = True
-                    else:
-                        changed = False
+def check_cd_dirs(book_path, root_path, errors, cds, try_fix):
+    cd_numbers = []
+    cd_name_bases = set()
+    for cd in cds:
+        match = re.search(r"(\d+)", cd)
+        if not match:
+            errors.append(f"{relpath(os.path.join(book_path, cd), root_path)} CD-Verzeichnisname enthält keine Zahl (Ebene 4)")
+            continue
+        num = match.group(1)
+        base = cd[:match.start(1)] + cd[match.end(1):]
+        cd_name_bases.add(base.strip().lower())
+        try:
+            num_int = int(num)
+            cd_numbers.append((cd, num_int))
+        except ValueError:
+            errors.append(f"{relpath(os.path.join(book_path, cd), root_path)} CD-Verzeichnisnummer ist keine gültige Zahl (Ebene 4)")
+    if len(cd_name_bases) > 1:
+        errors.append(f"{relpath(book_path, root_path)} CD-Verzeichnisnamen unterscheiden sich abgesehen von der Zahl (Ebene 4)")
+    if cd_numbers:
+        nums = sorted([n for _, n in cd_numbers])
+        if nums != list(range(1, len(nums)+1)):
+            errors.append(f"{relpath(book_path, root_path)} CD-Verzeichnisnummern sind nicht fortlaufend ab 1 (Ebene 4)")
 
-                # --- wie gehabt: Prüfung auf mp3 und CD-Verzeichnisse ---
-                entries = os.listdir(book_path)
-                mp3s = [f for f in entries if f.lower().endswith('.mp3')]
-                cds = [f for f in entries if os.path.isdir(os.path.join(book_path, f))]
+    for cd in cds:
+        cd_path = os.path.join(book_path, cd)
+        check_cd_mp3s(cd_path, root_path, errors, try_fix)
 
-                if mp3s and cds:
-                    errors.append(f"{relpath(book_path, root_path)} enthält sowohl mp3-Dateien als auch CD-Verzeichnisse (Ebene 4)")
-                elif not mp3s and not cds:
-                    errors.append(f"{relpath(book_path, root_path)} enthält weder mp3-Dateien noch CD-Verzeichnisse (Ebene 4)")
-
-                if cds:
-                    cd_numbers = []
-                    cd_name_bases = set()
-                    for cd in cds:
-                        match = re.search(r"(\d+)", cd)
-                        if not match:
-                            errors.append(f"{relpath(os.path.join(book_path, cd), root_path)} CD-Verzeichnisname enthält keine Zahl (Ebene 4)")
-                            continue
-                        num = match.group(1)
-                        base = cd[:match.start(1)] + cd[match.end(1):]
-                        cd_name_bases.add(base.strip().lower())
-                        try:
-                            num_int = int(num)
-                            cd_numbers.append((cd, num_int))
-                        except ValueError:
-                            errors.append(f"{relpath(os.path.join(book_path, cd), root_path)} CD-Verzeichnisnummer ist keine gültige Zahl (Ebene 4)")
-                    if len(cd_name_bases) > 1:
-                        errors.append(f"{relpath(book_path, root_path)} CD-Verzeichnisnamen unterscheiden sich abgesehen von der Zahl (Ebene 4)")
-                    if cd_numbers:
-                        nums = sorted([n for _, n in cd_numbers])
-                        if nums != list(range(1, len(nums)+1)):
-                            errors.append(f"{relpath(book_path, root_path)} CD-Verzeichnisnummern sind nicht fortlaufend ab 1 (Ebene 4)")
-
-                for cd in cds:
-                    cd_path = os.path.join(book_path, cd)
-                    cd_mp3s = [f for f in os.listdir(cd_path) if f.lower().endswith('.mp3')]
-                    if not cd_mp3s:
-                        subdirs = [d for d in os.listdir(cd_path) if os.path.isdir(os.path.join(cd_path, d))]
-                        mp3_subdirs = []
-                        for subdir in subdirs:
-                            subdir_path = os.path.join(cd_path, subdir)
-                            subdir_mp3s = [f for f in os.listdir(subdir_path) if f.lower().endswith('.mp3')]
-                            if subdir_mp3s:
-                                mp3_subdirs.append((subdir_path, subdir_mp3s))
-                        if len(mp3_subdirs) == 1 and try_fix:
-                            subdir_path, subdir_mp3s = mp3_subdirs[0]
-                            for mp3_file in subdir_mp3s:
-                                src = os.path.join(subdir_path, mp3_file)
-                                dst = os.path.join(cd_path, mp3_file)
-                                shutil.move(src, dst)
-                            if not os.listdir(subdir_path):
-                                os.rmdir(subdir_path)
-                            cd_mp3s = [f for f in os.listdir(cd_path) if f.lower().endswith('.mp3')]
-                            if not cd_mp3s:
-                                errors.append(f"{relpath(cd_path, root_path)} enthält nach Fix immer noch keine mp3-Dateien (Ebene 5)")
-                        elif len(mp3_subdirs) == 1:
-                            errors.append(f"{relpath(cd_path, root_path)} enthält keine mp3-Dateien, aber ein Unterverzeichnis mit mp3-Dateien (Ebene 5). Mit --tryFix können diese verschoben werden.")
-                        else:
-                            errors.append(f"{relpath(cd_path, root_path)} enthält keine mp3-Dateien (Ebene 5)")
+def check_cd_mp3s(cd_path, root_path, errors, try_fix):
+    cd_mp3s = [f for f in os.listdir(cd_path) if f.lower().endswith('.mp3')]
+    if not cd_mp3s:
+        subdirs = [d for d in os.listdir(cd_path) if os.path.isdir(os.path.join(cd_path, d))]
+        mp3_subdirs = []
+        for subdir in subdirs:
+            subdir_path = os.path.join(cd_path, subdir)
+            subdir_mp3s = [f for f in os.listdir(subdir_path) if f.lower().endswith('.mp3')]
+            if subdir_mp3s:
+                mp3_subdirs.append((subdir_path, subdir_mp3s))
+        if len(mp3_subdirs) == 1 and try_fix:
+            subdir_path, subdir_mp3s = mp3_subdirs[0]
+            for mp3_file in subdir_mp3s:
+                src = os.path.join(subdir_path, mp3_file)
+                dst = os.path.join(cd_path, mp3_file)
+                shutil.move(src, dst)
+            if not os.listdir(subdir_path):
+                os.rmdir(subdir_path)
+            cd_mp3s = [f for f in os.listdir(cd_path) if f.lower().endswith('.mp3')]
+            if not cd_mp3s:
+                errors.append(f"{relpath(cd_path, root_path)} enthält nach Fix immer noch keine mp3-Dateien (Ebene 5)")
+        elif len(mp3_subdirs) == 1:
+            errors.append(f"{relpath(cd_path, root_path)} enthält keine mp3-Dateien, aber ein Unterverzeichnis mit mp3-Dateien (Ebene 5). Mit --tryFix können diese verschoben werden.")
+        else:
+            errors.append(f"{relpath(cd_path, root_path)} enthält keine mp3-Dateien (Ebene 5)")
 
     return errors
 
