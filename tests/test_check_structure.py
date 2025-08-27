@@ -135,7 +135,7 @@ class TestCheckStructure(unittest.TestCase):
             fixed_path = os.path.join(author_dir, "Mein Buch 17")
             self.assertTrue(
                 os.path.isdir(fixed_path),
-                msg=f"Buchverzeichnis '{book}' wurde nicht korrekt repariert zu 'Mein Buch 17'."
+                msg=f"Buchverzeichnis '{book}' wurde nicht korrekt repariert zu 'Mein Buch 17'. Erhaltene Fehler: {errors}"
             )
         finally:
             shutil.rmtree(test_dir)
@@ -145,11 +145,13 @@ class TestCheckStructure(unittest.TestCase):
         test_dir = tempfile.mkdtemp()
         try:
             author = "Max Mustermann"
+            author_path = os.path.join(test_dir, author[0], author)
             book = "Mein!Buch"
-            book_path = os.path.join(test_dir, author[0], author, book)
+            book_path = os.path.join(author_path, book)
             os.makedirs(book_path)
             errors = []
-            check_book_dir(book, book_path, author, os.path.join(test_dir, author[0], author), test_dir, errors, try_fix=False)
+            # KORREKTUR: Argumente anpassen!
+            check_book_dir(book, book_path, author, author_path, test_dir, errors, try_fix=False)
             self.assertTrue(any("Hörbuchverzeichnisname enthält ungültige Zeichen" in e for e in errors))
         finally:
             shutil.rmtree(test_dir)
@@ -175,12 +177,16 @@ class TestCheckStructure(unittest.TestCase):
             shutil.rmtree(test_dir)
 
     def test_author_and_book_name_containment_error(self):
-        # Testet, dass ein Fehler ausgegeben wird, wenn der Authorname im Buchnamen vorkommt oder umgekehrt
+        # Testet, dass ein Fehler ausgegeben wird, wenn ein beliebiges Wort des Authoren im Buchtitel vorkommt oder umgekehrt
         cases = [
             ("Max Mustermann", "Max Mustermann", True),
             ("Sabine Maier", "Das neue Hörbuch von Sabine Maier", True),
-            ("SabineManuela Maier", "Sabine", True),
-            ("Tina Turner", "Das Buch", False),  # Kein Konflikt
+            ("Ralf Richter", "Ralf123 Richter", True),  # "Ralf" und "Richter" kommen als Wortbestandteile vor
+            ("Tina Turner", "Das Buch", False),         # Kein Konflikt
+            ("Anna Schmidt", "Schmidt Anna", True),     # Beide Wörter gegenseitig enthalten
+            ("Peter Lustig", "Peter und der Wolf", True), # "Peter" kommt im Buchtitel vor
+            ("Peter Lustig", "Lustige Abenteuer", False),  # "Lustig" als Wortbestandteil im Buchtitel
+            ("Karl May", "Winnetou", False),            # Kein Konflikt
         ]
         for author, book, expect_error in cases:
             with self.subTest(author=author, book=book):

@@ -67,7 +67,6 @@ def check_author_dir(author, author_path, letter, root_path, errors, try_fix):
     if not os.path.isdir(author_path):
         errors.append(f"{relpath(author_path, root_path)} ist kein Verzeichnis (Ebene 2)")
         return
-    
     if not author.lower().startswith(letter.lower()):
         errors.append(f"{relpath(author_path, root_path)} beginnt nicht mit '{letter}' (Ebene 2)")
         return
@@ -82,7 +81,13 @@ def check_author_dir(author, author_path, letter, root_path, errors, try_fix):
                 found_files_in_author = True
                 errors.append(f"{relpath(author_path, root_path)} enthält Dateien (Ebene 3)")
             continue
+        # KORREKTUR: author_path entfernen!
         check_book_dir(book, book_path, author, author_path, root_path, errors, try_fix)
+
+def check_Words_in_one_or_the_other(text1, text2):
+    words1 = set(text1.lower().split())
+    words2 = set(text2.lower().split())
+    return not words1.isdisjoint(words2)
 
 def check_book_dir(book, book_path, author, author_path, root_path, errors, try_fix):
     if try_fix:
@@ -102,7 +107,9 @@ def check_book_dir(book, book_path, author, author_path, root_path, errors, try_
     if not book_valid_re.match(book):
         errors.append(f"{relpath(book_path, root_path)} Hörbuchverzeichnisname enthält ungültige Zeichen (Ebene 3)")
         return
-    if author.lower() in book.lower() or book.lower() in author.lower():
+
+    # Prüfe gegenseitige Wort-Enthaltung zwischen Author und Buch
+    if check_Words_in_one_or_the_other(author, book):
         errors.append(f"{relpath(book_path, root_path)} Name des Authors und des Hörbuchs dürfen sich nicht gegenseitig enthalten (Ebene 3)")
         return
 
