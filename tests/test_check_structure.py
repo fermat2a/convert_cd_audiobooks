@@ -3,10 +3,9 @@ import os
 import shutil
 import tempfile
 import unittest
-import re
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from convert_all import (
+from check_structure import (
     check_structure,
     check_author_dir,
     check_book_dir,
@@ -214,6 +213,66 @@ class TestCheckStructure(unittest.TestCase):
                         )
                 finally:
                     shutil.rmtree(test_dir)
+
+    def test_check_cd_dirs(self):
+        # Testet verschiedene Fehlerfälle für CD-Verzeichnisse
+        test_dir = tempfile.mkdtemp()
+        try:
+            author = "Max Mustermann"
+            book = "Mein_Buch_CD"
+            book_dir = os.path.join(test_dir, author[0], author, book)
+            os.makedirs(book_dir)
+
+            # Fall 1: CD-Verzeichnis ohne Zahl im Namen
+            cd_dir1 = os.path.join(book_dir, "DiscA")
+            os.makedirs(cd_dir1)
+            errors = []
+            check_cd_dirs(book_dir, test_dir, errors, ["DiscA"], try_fix=False)
+            self.assertTrue(
+                any("CD-Verzeichnisname enthält keine Zahl" in e for e in errors),
+                msg=f"Fehler für fehlende Zahl im CD-Verzeichnisnamen nicht erkannt: {errors}"
+            )
+
+            # Fall 2: CD-Verzeichnis mit nicht fortlaufenden Nummern
+            shutil.rmtree(book_dir)
+            os.makedirs(book_dir)
+            os.makedirs(os.path.join(book_dir, "CD01"))
+            os.makedirs(os.path.join(book_dir, "CD03"))
+            errors = []
+            check_cd_dirs(book_dir, test_dir, errors, ["CD01", "CD03"], try_fix=False)
+            self.assertTrue(
+                any("CD-Verzeichnisnummern sind nicht fortlaufend ab 1" in e for e in errors),
+                msg=f"Fehler für nicht fortlaufende Nummern nicht erkannt: {errors}"
+            )
+
+            # Fall 3: CD-Verzeichnisnamen unterscheiden sich abgesehen von der Zahl
+            shutil.rmtree(book_dir)
+            os.makedirs(book_dir)
+            os.makedirs(os.path.join(book_dir, "CD01"))
+            os.makedirs(os.path.join(book_dir, "Disk02"))
+            errors = []
+            check_cd_dirs(book_dir, test_dir, errors, ["CD01", "Disk02"], try_fix=False)
+            self.assertTrue(
+                any("CD-Verzeichnisnamen unterscheiden sich abgesehen von der Zahl" in e for e in errors),
+                msg=f"Fehler für unterschiedliche Basen nicht erkannt: {errors}"
+            )
+
+            # Fall 4: CD-Verzeichnis mit gültigen fortlaufenden Nummern und gleichem Basenamen
+            shutil.rmtree(book_dir)
+            os.makedirs(book_dir)
+            os.makedirs(os.path.join(book_dir, "CD01"))
+            os.makedirs(os.path.join(book_dir, "CD02"))
+            errors = []
+            check_cd_dirs(book_dir, test_dir, errors, ["CD01", "CD02"], try_fix=False)
+            self.assertFalse(
+                any("CD-Verzeichnisname enthält keine Zahl" in e or
+                    "CD-Verzeichnisnummern sind nicht fortlaufend ab 1" in e or
+                    "CD-Verzeichnisnamen unterscheiden sich abgesehen von der Zahl" in e
+                    for e in errors),
+                msg=f"Fälschlicher Fehler für gültige CD-Verzeichnisse: {errors}"
+            )
+        finally:
+            shutil.rmtree(test_dir)
 
 if __name__ == "__main__":
     unittest.main()
