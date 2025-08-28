@@ -6,6 +6,8 @@ import ffmpeg
 import argparse
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import mutagen
+from mutagen.id3 import ID3, TIT2, TPE1, ID3NoHeaderError
 
 class Hoerbuch:
     def __init__(self, author, title, path):
@@ -145,6 +147,7 @@ class Hoerbuch:
         Konvertiert das gesamte Hörbuch zu einer einzelnen MP3-Datei mit variabler Bitrate (~64 kBit/s).
         Stereomodus: joint stereo falls channel_layout auf stereo schließen lässt, sonst mono.
         Falls avg_bitrate < 70, werden die Daten nur konkateniert, aber nicht neu enkodiert.
+        Fügt ID3-Tags für Author und Titel hinzu und übernimmt weitere Tags aus der ersten Quelldatei.
         """
         if not self.mp3_files:
             return ["Keine MP3-Dateien zum Konvertieren gefunden."]
@@ -172,7 +175,7 @@ class Hoerbuch:
                         output_path,
                         acodec='copy'
                     )
-                    .run(overwrite_output=True)
+                    .run(overwrite_output=True, quiet=True)
                 )
             else:
                 # Neu enkodieren mit ca. 64 kBit/s
@@ -186,13 +189,34 @@ class Hoerbuch:
                         ac=ac,
                         **({'joint_stereo': None} if ac == 2 else {})
                     )
-                    .run(overwrite_output=True)
+                    .run(overwrite_output=True, quiet=True)
                 )
+            # ID3-Tags übernehmen und setzen
+            merge_id3_tags_from_first_mp3(output_path, self.mp3_files[0], self.author, self.title)
         except Exception as e:
             return [f"Fehler bei der Konvertierung: {e}"]   
         finally:
             os.remove(concat_list)
         return []
+
+def copy_id3_tags(src_file, dst_file, author, title):
+    try:
+        tags = ID3(src_file)
+    except ID3NoHeaderError:
+        tags = ID3()
+    # Setze/überschreibe Author und Titel
+    tags["TPE1"] = TPE1(encoding=3, text=author)
+    tags["TIT2"] = TIT2(encoding=3, text=title)
+    tags.save(dst_file)
+
+def merge_id3_tags_from_first_mp3(output_path, first_mp3, author, title):
+    try:
+        tags = ID3(first_mp3)
+    except ID3NoHeaderError:
+        tags = ID3()
+    tags["TPE1"] = TPE1(encoding=3, text=author)
+    tags["TIT2"] = TIT2(encoding=3, text=title)
+    tags.save(output_path)
 
 def finde_alle_hoerbuecher(root_path):
     hoerbuecher = []
