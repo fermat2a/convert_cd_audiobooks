@@ -14,6 +14,7 @@ from check_structure import (
     check_cd_mp3s,
     author_valid_re,
     book_valid_re,
+    check_mp3_filename_pattern,
 )
 
 class TestCheckStructure(unittest.TestCase):
@@ -273,6 +274,96 @@ class TestCheckStructure(unittest.TestCase):
             )
         finally:
             shutil.rmtree(test_dir)
+
+class TestCheckMp3FilenamePattern(unittest.TestCase):
+    def test_all_files_same_prefix_and_number(self):
+        files = ["track01.mp3", "track02.mp3", "track03.mp3"]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNone(
+            err,
+            msg=f"Fehler erhalten, obwohl keiner erwartet: {err}"
+        )
+
+    def test_different_prefix(self):
+        files = ["track01.mp3", "song02.mp3"]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNotNone(
+            err,
+            msg="Kein Fehler für unterschiedliche Präfixe erhalten!"
+        )
+        self.assertIn("beginnt nicht mit dem Präfix", err)
+
+    def test_no_number_in_first_file(self):
+        files = ["trackA.mp", "trackB.mp"]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNotNone(
+            err,
+            msg="Kein Fehler für fehlende Zahl im ersten Dateinamen erhalten!"
+        )
+        self.assertIn("enthält keine Zahl", err, msg=f"Unerwartete Fehlermeldung: {err}")
+
+    def test_no_number_after_prefix(self):
+        files = ["track01.mp3", "trackA.mp3"]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNotNone(
+            err,
+            msg="Kein Fehler für fehlende Zahl nach Präfix erhalten!"
+        )
+        self.assertIn("beginnt nicht mit dem Präfix vor der nächsten Zahl wie", err)
+
+    def test_recursive_grouping_fail(self):
+        # Zwei Gruppen mit gleichem Präfix und Zahl, jeweils mit mehreren Dateien
+        files = [
+            "track01a.mp3", "track01b.mp3",
+            "track02a.mp3", "track02b.mp3"
+        ]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNotNone(
+            err,
+            msg=f"Fehler erhalten, obwohl keiner erwartet: {err}"
+        )
+        self.assertIn("beginnt nicht mit dem Präfix vor der nächsten Zahl wie", err)
+
+    def test_recursive_grouping_no_number_more_fail(self):
+        # Zwei Gruppen mit gleichem Präfix und Zahl, jeweils mit mehreren Dateien
+        files = [
+            "track01a.mp", "track01b.mp",
+            "track02a.mp", "track02b.mp"
+        ]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNotNone(
+            err,
+            msg=f"Fehler erhalten, obwohl keiner erwartet: {err}"
+        )
+        self.assertIn("enthält keine Zahl", err)
+
+    def test_recursive_grouping_success(self):
+        # Zwei Gruppen mit gleichem Präfix und Zahl, jeweils mit mehreren Dateien
+        files = [
+            "cd01track01.mp3", "cd01track02.mp3",
+            "cd02track01.mp3", "cd02track02.mp3"
+        ]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNone(
+            err,
+            msg=f"Fehler erhalten, obwohl keiner erwartet: {err}"
+        )
+
+    def test_single_file(self):
+        files = ["track01.mp3"]
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNone(
+            err,
+            msg=f"Fehler erhalten, obwohl keiner erwartet: {err}"
+        )
+
+    def test_empty_list(self):
+        files = []
+        err = check_mp3_filename_pattern(files, "bla")
+        self.assertIsNone(
+            err,
+            msg=f"Fehler erhalten, obwohl keiner erwartet: {err}"
+        )
 
 if __name__ == "__main__":
     unittest.main()

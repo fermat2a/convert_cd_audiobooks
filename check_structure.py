@@ -124,6 +124,10 @@ def check_book_dir(book, book_path, author, author_path, root_path, errors, try_
     elif not mp3s and not cds:
         errors.append(f"{relpath(book_path, root_path)} enthält weder mp3-Dateien noch CD-Verzeichnisse (Ebene 4)")
 
+    if mp3s:
+        err = check_mp3_filename_pattern(mp3s, relpath(book_path, root_path))
+        if err:
+            errors.append(err)
     if cds:
         check_cd_dirs(book_path, root_path, errors, cds, try_fix)
 
@@ -196,13 +200,83 @@ def check_cd_mp3s(cd_path, root_path, errors, try_fix):
             cd_mp3s = [f for f in os.listdir(cd_path) if f.lower().endswith('.mp3')]
             if not cd_mp3s:
                 errors.append(f"{relpath(cd_path, root_path)} enthält nach Fix immer noch keine mp3-Dateien (Ebene 5)")
+            else:
+                err = check_mp3_filename_pattern(cd_mp3s, relpath(cd_path, root_path))
+                if err:
+                    errors.append(err)
         elif len(mp3_subdirs) == 1:
             errors.append(f"{relpath(cd_path, root_path)} enthält keine mp3-Dateien, aber ein Unterverzeichnis mit mp3-Dateien (Ebene 5). Mit --tryFix können diese verschoben werden.")
         else:
             errors.append(f"{relpath(cd_path, root_path)} enthält keine mp3-Dateien (Ebene 5)")
-
+    else:
+        err = (check_mp3_filename_pattern(cd_mp3s, relpath(cd_path, root_path)))
+        if err:
+            errors.append(err)
     return errors
 
+def check_mp3_filename_pattern(file_list, relpath):
+    """
+    Prüft, ob alle mp3-Dateien in file_list denselben Präfix vor der ersten Zahl haben.
+    Gibt None zurück, wenn alles passt, sonst eine Fehlermeldung.
+    Ruft sich rekursiv für jede Gruppe gleicher Zahl auf.
+    In number_dict wird nur der Teil von fname nach der Zahl gespeichert.
+    """
+    if len(file_list) <= 1:
+        return None
+    
+    recList = []
+
+
+    for fname in file_list:
+        recList.append((fname, fname))
+    
+    return check_mp3_filename_patternrec(recList, relpath)
+
+
+def check_mp3_filename_patternrec(file_list, relpath):
+    """
+    Prüft, ob alle mp3-Dateien in file_list denselben Präfix vor der ersten Zahl haben.
+    Gibt None zurück, wenn alles passt, sonst eine Fehlermeldung.
+    Ruft sich rekursiv für jede Gruppe gleicher Zahl auf.
+    In number_dict wird nur der Teil von fname nach der Zahl gespeichert.
+    """
+    if len(file_list) <= 1:
+        return None
+
+    # Sortiere die Liste lexikographisch
+    #file_list = sorted(file_list)
+    firstName = file_list[0][0]
+    firstRest = file_list[0][1]
+    m = re.search(r'\d+', firstRest)
+    if not m:
+        return f"{relpath}: Dateiname '{firstName}' enthält keine Zahl."
+
+    prefix = firstRest[:m.start()]
+    number_dict = {}
+
+    for entry in file_list:
+        fname = entry[0]
+        frest = entry[1]
+    
+        m2 = re.search(r'\d+', frest)
+        if not m2:
+            return f"{relpath}: Dateiname '{frest}' aus '{fname}' enthält keine Zahl."
+        if not prefix == frest[:m2.start()]:
+            return f"{relpath}: Dateiname '{frest}' aus '{fname}' beginnt nicht mit dem Präfix vor der nächsten Zahl wie '{prefix}' von '{firstRest}' aus '{firstName}'."
+        
+        number = m2.group(0)
+        # Der Teil nach der Zahl:
+        rest = frest[m2.end():]
+        number_dict.setdefault(number, []).append((fname, rest))
+
+    for num, group in number_dict.items():
+        if len(group) > 1:
+            # Rekursiv prüfen, aber jetzt nur noch auf den Rest
+            err = check_mp3_filename_patternrec(group, relpath)
+            if err:
+                return err
+
+    return None
 
 if __name__ == "__main__":
     try_fix = False
