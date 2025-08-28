@@ -1,12 +1,17 @@
 import os
 import sys
 import re
+import ffmpeg
 
 class Hoerbuch:
     def __init__(self, author, title, path):
         self.author = author
         self.title = title
         self.path = path
+        self.avg_bitrate = 0
+        self.min_bitrate = 0
+        self.max_bitrate = 0
+        self.channel_layout = 'UNDEFINED'
         self.mp3_files = self._find_mp3_files()
 
     def _find_mp3_files(self):
@@ -70,6 +75,62 @@ class Hoerbuch:
     def normalized_author(self):
         return self._normalize_string(self.author)
 
+    def check_mp3_properties(self):
+        """
+        Prüft für alle mp3-Dateien:
+        - Sind es wirklich mp3-Dateien?
+        - Haben alle die gleiche Bitrate und Kanalanzahl?
+        - Liegt die Bitrate unter 96 kbit/s?
+        - Sind sie stereo, mono oder joint stereo kodiert?
+        Gibt eine Liste von Fehlern und eine Zusammenfassung der Modi zurück.
+        """
+        errors = []
+        channels = set()
+        channel_layouts = set()
+        sum_bitrates = 0
+        checked_files = 0
+        max_bitrate = 0
+        min_bitrate = 10000
+
+        for mp3 in self.mp3_files:
+            try:
+                probe = ffmpeg.probe(mp3)
+                audio_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
+                if not audio_stream:
+                    errors.append(f"{mp3}: Keine Audiospur gefunden.")
+                    continue
+                codec = audio_stream.get('codec_name', '')
+                if codec != "mp3":
+                    errors.append(f"{mp3}: ist kein MP3-Stream (gefunden: {codec})")
+                bitrate = int(audio_stream.get('bit_rate', 0))
+                channel_count = int(audio_stream.get('channels', 0))
+                layout = audio_stream.get('channel_layout', '').lower()
+                # joint stereo wird meist als "joint_stereo" oder "stereo" kodiert, aber joint stereo ist ein MP3-Feature
+                # ffmpeg gibt "joint_stereo" als channel_layout aus, falls erkannt
+                kbs = bitrate // 1000 if bitrate else 0
+                if max_bitrate < kbs:
+                    max_bitrate = kbs
+                if min_bitrate > kbs and kbs > 0:
+                    min_bitrate = kbs
+                sum_bitrates += kbs
+                channels.add(channel_count)
+                channel_layouts.add(layout)
+                checked_files += 1
+            except Exception as e:
+                errors.append(f"{mp3}: Fehler beim Prüfen: {e}")
+
+        if len(channels) > 1:
+            errors.append(f"Unterschiedliche Kanalanzahlen gefunden: {sorted(channels)}")
+        if len(channel_layouts) > 1:
+            errors.append(f"Unterschiedliche Kanal-Modi gefunden: {sorted(channel_layouts)}")
+        
+        if len(errors) == 0 and checked_files > 0:
+            self.avg_bitrate = sum_bitrates // checked_files
+            self.min_bitrate = min_bitrate
+            self.max_bitrate = max_bitrate
+            self.channel_layout = channel_layouts.pop()
+        return errors, channel_layouts
+
 def finde_alle_hoerbuecher(root_path):
     hoerbuecher = []
     for letter in os.listdir(root_path):
@@ -99,7 +160,15 @@ if __name__ == "__main__":
         sys.exit(1)
     hoerbuecher = finde_alle_hoerbuecher(root)
     print(f"Gefundene Hörbücher: {len(hoerbuecher)}")
+    h = hoerbuecher[0]
     for h in hoerbuecher:
-        print(f"Author: {h.author} -> {h.normalized_author()}, Titel: {h.title} -> {h.normalized_title()}, Pfad: {h.path}")
-        for mp3 in h.mp3_files:
-            print(f"  {mp3}")
+        
+        #for mp3 in h.mp3_files:
+        #    print(f"  {mp3}")
+        errors, channel_layouts = h.check_mp3_properties()
+        if errors:
+            print("  Fehler bei MP3-Prüfung:")
+            for err in errors:
+                print(f"    {err}")
+            sys,exit(1)
+        print(f"Author: {h.author}, Titel: {h.title}, Average Bitrate: {h.avg_bitrate}, Stero: {h.channel_layout}")
