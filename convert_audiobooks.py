@@ -238,11 +238,26 @@ def finde_alle_hoerbuecher(root_path):
     return hoerbuecher
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="MP3-Hörbuchprüfung")
-    parser.add_argument("wurzelverzeichnis", help="Wurzelverzeichnis der Hörbücher")
-    parser.add_argument("-j", type=int, help="Anzahl paralleler Jobs", default=None)
-    parser.add_argument("--nocheck", action="store_true", help="MP3-Prüfungen überspringen")
-    parser.add_argument("--convert-to", type=str, help="Konvertierung durchführen", default=None)
+    parser = argparse.ArgumentParser(
+        description="Werkzeug zur Überprüfung und Konvertierung von MP3-Hörbüchern.\n"
+                    "Standardmäßig werden alle Hörbücher im angegebenen Wurzelverzeichnis geprüft.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "wurzelverzeichnis",
+        help="Wurzelverzeichnis, in dem die Hörbuch-Ordnerstruktur liegt"
+    )
+    parser.add_argument(
+        "-j", type=int, help="Anzahl paralleler Jobs für die Verarbeitung, wenn nichts angegeben wird, dann wird versucht die Anzahl der CPU Kerne zu ermitteln und dieser Wert +1 verwendet. Kann die Anzahl der Kerne nicht ermittelt werden, dann wird 2 verwendet."
+    )
+    parser.add_argument(
+        "--nocheck", action="store_true",
+        help="MP3-Prüfungen überspringen"
+    )
+    parser.add_argument(
+        "--convert-to", type=str,
+        help="Konvertiere alle Hörbücher in das angegebene Zielverzeichnis (Dateien werden in einzelne MP3 exportiert, ca. 64 kBit/s)"
+    )
     return parser.parse_args()
 
 def main():
