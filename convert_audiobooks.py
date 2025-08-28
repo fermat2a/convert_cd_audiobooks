@@ -1,7 +1,10 @@
 import os
 import sys
 import re
+import time
 import ffmpeg
+import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Hoerbuch:
     def __init__(self, author, title, path):
@@ -97,7 +100,12 @@ class Hoerbuch:
                 probe = ffmpeg.probe(mp3)
                 audio_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
                 if not audio_stream:
-                    errors.append(f"{mp3}: Keine Audiospur gefunden.")
+                    codec_types = []
+                    for stream in probe['streams']:
+                        codec_types.append(stream['codec_type'])
+                        if stream['codec_type'] == 'audio':
+                            codec_types.append(stream.get('codec_name', ''))
+                    errors.append(f"{mp3}: Keine Audiospur gefunden. codec_types: {codec_types}")
                     continue
                 codec = audio_stream.get('codec_name', '')
                 if codec != "mp3":
@@ -128,8 +136,8 @@ class Hoerbuch:
             self.avg_bitrate = sum_bitrates // checked_files
             self.min_bitrate = min_bitrate
             self.max_bitrate = max_bitrate
-            self.channel_layout = channel_layouts.pop()
-        return errors, channel_layouts
+            self.channel_layout = channel_layouts.pop() if channel_layouts else 'UNDEFINED'
+        return errors
 
 def finde_alle_hoerbuecher(root_path):
     hoerbuecher = []
@@ -150,25 +158,55 @@ def finde_alle_hoerbuecher(root_path):
     hoerbuecher.sort(key=lambda h: (h.author, h.title))
     return hoerbuecher
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Aufruf: python convert_audiobooks.py <Wurzelverzeichnis>")
-        sys.exit(1)
-    root = sys.argv[1]
+def parse_args():
+    parser = argparse.ArgumentParser(description="MP3-Hörbuchprüfung")
+    parser.add_argument("wurzelverzeichnis", help="Wurzelverzeichnis der Hörbücher")
+    parser.add_argument("-j", type=int, help="Anzahl paralleler Jobs", default=None)
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    root = args.wurzelverzeichnis
     if not os.path.isdir(root):
         print(f"{root} ist kein Verzeichnis!")
         sys.exit(1)
     hoerbuecher = finde_alle_hoerbuecher(root)
     print(f"Gefundene Hörbücher: {len(hoerbuecher)}")
-    h = hoerbuecher[0]
-    for h in hoerbuecher:
-        
-        #for mp3 in h.mp3_files:
-        #    print(f"  {mp3}")
-        errors, channel_layouts = h.check_mp3_properties()
+
+    # Bestimme Anzahl der Jobs
+    if args.j is not None:
+        num_jobs = args.j
+    else:
+        try:
+            num_jobs = os.cpu_count() + 1
+        except Exception:
+            num_jobs = 2
+
+    def job(h):
+        start = time.time()
+        errors = h.check_mp3_properties()
+        end = time.time()
+        elapsed_ms = int((end - start) * 1000)
+        print(f"[Done] Author: {h.author}, Titel: {h.title}, Needed: {elapsed_ms} ms")
+        return (h, errors)
+
+    # Parallel ausführen
+    with ThreadPoolExecutor(max_workers=num_jobs) as executor:
+        futures = {executor.submit(job, h): h for h in hoerbuecher}
+        results = []
+        for future in as_completed(futures):
+            h, errors = future.result()
+            results.append((h, errors))
+
+    print ("Found errors:")
+    for result in results:
+        h = result[0]
+        errors = result[1]
         if errors:
-            print("  Fehler bei MP3-Prüfung:")
+            print(f"- Author: {h.author}, Titel: {h.title}, Average Bitrate: {h.avg_bitrate}, Stereo: {h.channel_layout}")
+            print("    Fehler bei MP3-Prüfung:")
             for err in errors:
-                print(f"    {err}")
-            sys,exit(1)
-        print(f"Author: {h.author}, Titel: {h.title}, Average Bitrate: {h.avg_bitrate}, Stero: {h.channel_layout}")
+                print(f"     - {err}")
+
+if __name__ == "__main__":
+    main()
