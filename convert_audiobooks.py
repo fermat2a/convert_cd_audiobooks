@@ -4,6 +4,7 @@ import re
 import time
 import ffmpeg
 import argparse
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Hoerbuch:
@@ -139,6 +140,60 @@ class Hoerbuch:
             self.channel_layout = channel_layouts.pop() if channel_layouts else 'UNDEFINED'
         return errors
 
+    def convert(self, output_path):
+        """
+        Konvertiert das gesamte Hörbuch zu einer einzelnen MP3-Datei mit variabler Bitrate (~64 kBit/s).
+        Stereomodus: joint stereo falls channel_layout auf stereo schließen lässt, sonst mono.
+        Falls avg_bitrate < 70, werden die Daten nur konkateniert, aber nicht neu enkodiert.
+        """
+        if not self.mp3_files:
+            return ["Keine MP3-Dateien zum Konvertieren gefunden."]
+
+        # Bestimme Stereomodus
+        stereo_keywords = {"stereo", "joint_stereo", "stereo_left", "stereo_right"}
+        if any(kw in (self.channel_layout or "") for kw in stereo_keywords):
+            ac = 2
+        else:
+            ac = 1
+
+        # Erzeuge temporäre Datei mit allen Inputs als Liste für concat demuxer
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as f:
+            for mp3 in self.mp3_files:
+                f.write(f"file '{os.path.abspath(mp3)}'\n")
+            concat_list = f.name
+
+        try:
+            if self.avg_bitrate < 70:
+                # Nur zusammenfügen, nicht neu enkodieren
+                (
+                    ffmpeg
+                    .input(concat_list, format='concat', safe=0)
+                    .output(
+                        output_path,
+                        acodec='copy'
+                    )
+                    .run(overwrite_output=True)
+                )
+            else:
+                # Neu enkodieren mit ca. 64 kBit/s
+                (
+                    ffmpeg
+                    .input(concat_list, format='concat', safe=0)
+                    .output(
+                        output_path,
+                        acodec='libmp3lame',
+                        qscale_a=9,
+                        ac=ac,
+                        **({'joint_stereo': None} if ac == 2 else {})
+                    )
+                    .run(overwrite_output=True)
+                )
+        except Exception as e:
+            return [f"Fehler bei der Konvertierung: {e}"]   
+        finally:
+            os.remove(concat_list)
+        return []
+
 def finde_alle_hoerbuecher(root_path):
     hoerbuecher = []
     for letter in os.listdir(root_path):
@@ -162,6 +217,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="MP3-Hörbuchprüfung")
     parser.add_argument("wurzelverzeichnis", help="Wurzelverzeichnis der Hörbücher")
     parser.add_argument("-j", type=int, help="Anzahl paralleler Jobs", default=None)
+    parser.add_argument("--nocheck", action="store_true", help="MP3-Prüfungen überspringen")
+    parser.add_argument("--convert-to", type=str, help="Konvertierung durchführen", default=None)
     return parser.parse_args()
 
 def main():
@@ -182,31 +239,69 @@ def main():
         except Exception:
             num_jobs = 2
 
-    def job(h):
-        start = time.time()
-        errors = h.check_mp3_properties()
-        end = time.time()
-        elapsed_ms = int((end - start) * 1000)
-        print(f"[Done] Author: {h.author}, Titel: {h.title}, Needed: {elapsed_ms} ms")
-        return (h, errors)
+    results = []
+    if not args.nocheck:
+        def job_check(h):
+            start = time.time()
+            errors = h.check_mp3_properties()
+            end = time.time()
+            elapsed_ms = int((end - start) * 1000)
+            print(f"[Done] Author: {h.author}, Titel: {h.title}, Needed: {elapsed_ms} ms")
+            return (h, errors)
 
-    # Parallel ausführen
-    with ThreadPoolExecutor(max_workers=num_jobs) as executor:
-        futures = {executor.submit(job, h): h for h in hoerbuecher}
-        results = []
-        for future in as_completed(futures):
-            h, errors = future.result()
-            results.append((h, errors))
+        # Parallel ausführen
+        with ThreadPoolExecutor(max_workers=num_jobs) as executor:
+            futures = {executor.submit(job_check, h): h for h in hoerbuecher}
+            for future in as_completed(futures):
+                h, errors = future.result()
+                results.append((h, errors))
 
-    print ("Found errors:")
-    for result in results:
-        h = result[0]
-        errors = result[1]
-        if errors:
-            print(f"- Author: {h.author}, Titel: {h.title}, Average Bitrate: {h.avg_bitrate}, Stereo: {h.channel_layout}")
-            print("    Fehler bei MP3-Prüfung:")
-            for err in errors:
-                print(f"     - {err}")
+        print("Found errors:")
+        found_errors = False
+        for result in results:
+            h = result[0]
+            errors = result[1]
+            if errors:
+                found_errors = True
+                print(f"- Author: {h.author}, Titel: {h.title}, Average Bitrate: {h.avg_bitrate}, Stereo: {h.channel_layout}")
+                print("    Fehler bei MP3-Prüfung:")
+                for err in errors:
+                    print(f"     - {err}")
+        if found_errors:
+            sys.exit(1)
+    
+    results = []
+    if args.convert_to:
+        if not os.path.isdir(args.convert_to):
+            print(f"{args.convert_to} ist kein Verzeichnis!")
+            sys.exit(1)
+
+        def job_run(h):
+            start = time.time()
+            authorpath = os.path.join(args.convert_to, f"{h.normalized_author()}")
+            os.makedirs(authorpath, exist_ok=True)
+            filepath = os.path.join(authorpath, f"{h.normalized_title()}.mp3")
+            if os.path.exists(filepath):
+                print(f"Skipping conversion for {h.author} - {h.title} into {filepath}, file already exists.")
+                return (h, filepath, [f"Skipping conversion for {h.author} - {h.title} into {filepath}, file already exists."])
+            errors = h.convert(filepath)
+            end = time.time()
+            elapsed_ms = int((end - start) * 1000)
+            print(f"[Done] Converting Author: {h.author}, Titel: {h.title}, into {filepath}, Needed: {elapsed_ms} ms")
+            return (h, filepath, errors)
+        
+        with ThreadPoolExecutor(max_workers=num_jobs) as executor:
+            futures = {executor.submit(job_run, h): h for h in hoerbuecher}
+            for future in as_completed(futures):
+                h, filepath, errors = future.result()
+                results.append((h, filepath, errors))
+
+
+        for h, filepath, errors in results:
+            if errors:
+                print(f"Skipping conversion for {h.author} - {h.title} into {filepath} due to errors:")
+                for err in errors:
+                    print(f"     - {err}")
 
 if __name__ == "__main__":
     main()
