@@ -1,0 +1,7 @@
+# Audio-Processing Dependencies
+ffmpeg-python>=0.2.0
+mutagen>=1.45.0
+
+# Development and Testing Dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0

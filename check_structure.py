@@ -71,7 +71,7 @@ def check_author_dir(author, author_path, letter, root_path, errors, try_fix):
         errors.append(f"{relpath(author_path, root_path)} beginnt nicht mit '{letter}' (Ebene 2)")
         return
     if not author_valid_re.match(author):
-        errors.append(f"{relpath(author_path, root_path)} Authorenverzeichnisname enthält ungültige Zeichen oder kein Leerzeichen in der Mitte (Ebene 2)")
+        errors.append(f"{relpath(author_path, root_path)} Authorenverzeichnisname {author} enthält ungültige Zeichen oder kein Leerzeichen in der Mitte (Ebene 2)")
         return
 
     for book in os.listdir(author_path):

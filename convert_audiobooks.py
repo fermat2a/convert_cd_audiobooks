@@ -167,6 +167,7 @@ class Hoerbuch:
 
         try:
             if self.avg_bitrate < 70:
+                print(f"Durchschnittliche Bitrate {self.avg_bitrate} kBit/s ist unter 70 kBit/s, daher werden die Dateien nur zusammengefügt, ohne neu zu enkodieren.")
                 # Nur zusammenfügen, nicht neu enkodieren
                 (
                     ffmpeg
@@ -178,6 +179,7 @@ class Hoerbuch:
                     .run(overwrite_output=True, quiet=True)
                 )
             else:
+                print(f"Durchschnittliche Bitrate {self.avg_bitrate} kBit/s ist über 70 kBit/s, daher werden die Dateien neu enkodiert mit ca. 64 kBit/s.")
                 # Neu enkodieren mit ca. 64 kBit/s
                 (
                     ffmpeg
@@ -185,9 +187,8 @@ class Hoerbuch:
                     .output(
                         output_path,
                         acodec='libmp3lame',
-                        qscale_a=9,
-                        ac=ac,
-                        **({'joint_stereo': None} if ac == 2 else {})
+                        audio_bitrate='64k',
+                        ac=ac
                     )
                     .run(overwrite_output=True, quiet=True)
                 )
